@@ -27,6 +27,8 @@ dual-environment (browser + Node) so `node --test` verifies logic with zero inst
 - Armor (A): HP 4, recolor on hits 1-3
 - 20 enemies/level, max 6 on field, spawn order (1,0) -> (6,0) -> (11,0)
 - Fort: eagle tile (6,12) + brick ring (5,11),(6,11),(7,11),(5,12),(7,12); eagle hit = game over
+  (spec says "7 brick tiles" but the reserved 5..7 x 11..12 zone is 6 cells; the classic layout
+  5 bricks + eagle is used — top row 3 bricks, bottom row brick/eagle/brick)
 - Player spawn (4,12), spawn protection 2s, lives start 3
 - Power-ups: 50% of enemies (random per level), box 24x24, 12s lifetime
 - High-score key: `battlecity_highscore`
@@ -322,11 +324,12 @@ if (typeof module !== "undefined" && module.exports) module.exports = LEVELS;
 
 **Files:** Create `tests/grid.test.js`, `grid.js`
 
-**Step 2.1 — Write failing test `tests/grid.test.js`:** covers `buildMap` (fortune placed),
-`tileAt`, `tankBlocks` (B/S/R/brick/eagle block, `.`/`T` pass), `canMoveTank` (28x28 box vs
-solid tiles + border), `bulletHits` (returns `{kind:'brick'|'steel'|'eagle'}` or null; shovel
-mode makes fort bricks act as steel), and a sweep across all 12 real levels (fort bricks intact,
-spawn cells unblocked).
+**Step 2.1 — Write failing test `tests/grid.test.js`:** covers `buildMap` (5 fort bricks present
+via `brickAt`, eagle alive, tile grid = pure map), `tileAt`, `tankBlocks` (B/S/R/fort-brick/eagle
+block, `.`/`T` pass), `canMoveTank` (28x28 box vs solid tiles + border), `bulletHits` (returns
+`{kind:'brick'|'steel'|'eagle'}` or null; `brick` field distinguishes fort-brick from map-brick;
+shovel mode makes fort bricks act as steel; broken fort brick → null), and a sweep across all 12
+real levels (fort bricks intact via `brickAt`, spawn cells unblocked).
 
 **Step 2.2 — Run, confirm FAIL** (Cannot find '../grid.js').
 
@@ -341,10 +344,11 @@ var Grid = (function () {
   var PLAYER_SPAWN = [4,12];
 
   function buildMap(lv) {
-    var tiles = lv.map.map(function (r) { return r.split(""); });
+    var tiles = lv.map.map(function (r) { return r.split(""); }); // mutable char arrays
     var bricks = FORT_BRICKS.map(function (p) { return { x: p[0], y: p[1], broken: false }; });
-    for (var i = 0; i < FORT_BRICKS.length; i++)
-      tiles[FORT_BRICKS[i][1]][FORT_BRICKS[i][0]] = "B";
+    // NOTE: fort bricks live ONLY in `bricks[]` (single source of truth). The tile grid keeps
+    // the fort zone as it appears in the map string (".") — no "B" overwrite — otherwise a
+    // broken fort brick would leave a stale "B" in tiles that blocks tanks/bullets forever.
     return {
       tiles: tiles, bricks: bricks,
       eagle: { x: 6, y: 12, alive: true },
