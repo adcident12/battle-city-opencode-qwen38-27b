@@ -211,13 +211,6 @@
     return [[b.x + b.w - 1, b.y + 1], [b.x + b.w - 1, b.y + 3]];
   }
 
-  function isFortCell(x, y) {
-    if (x === 6 && y === 12) return true;
-    for (var i = 0; i < Grid.FORT_BRICKS.length; i++)
-      if (Grid.FORT_BRICKS[i][0] === x && Grid.FORT_BRICKS[i][1] === y) return true;
-    return false;
-  }
-
   function bulletTileHit(b) {
     var pts = leadingPts(b);
     for (var i = 0; i < pts.length; i++) {
@@ -516,7 +509,6 @@
   }
 
   function gameOver() { saveHigh(); setState("gameover"); Sfx.play("game_over"); }
-  function clearStage() { setState("stageclear"); }
 
   // ---- render ----------------------------------------------------------
   function render() {
