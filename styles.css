@@ -13,7 +13,7 @@ body {
 }
 #overlay.hidden { display: none; }
 #ov-title { font-size: 34px; font-weight: bold; letter-spacing: 3px; color: #ffd94f; }
-#ov-sub { font-size: 15px; color: #e8e8e8; }
+#ov-sub { font-size: 15px; color: #e8e8e8; white-space: pre-line; }
 #ov-hint { font-size: 13px; color: #9a9a9a; white-space: pre-line; }
 #hud { width: 390px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
 .hud-block { background: #1c1c1c; border: 1px solid #333; padding: 6px 4px; text-align: center; }

@@ -101,7 +101,9 @@
       t = "STAGE CLEAR"; sub = "score " + G.score;
       hint = "next stage...";
     } else if (G.state === "gameover") {
-      t = "GAME OVER"; sub = "score " + G.score + "   high " + G.high;
+      t = "GAME OVER";
+      sub = (G.lives <= 0 ? "OUT OF LIVES" : "BASE DESTROYED") +
+        "\nscore " + G.score + "   high " + G.high;
       hint = "press SPACE for menu";
     } else if (G.state === "victory") {
       t = "VICTORY!"; sub = "all " + LEVELS.length + " stages clear";
