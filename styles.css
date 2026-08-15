@@ -1,0 +1,24 @@
+html, body { margin: 0; padding: 0; background: #101010; height: 100%; }
+body {
+  display: flex; align-items: center; justify-content: center;
+  font-family: "Courier New", monospace; color: #e8e8e8;
+}
+#wrap { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+#stage { position: relative; }
+#game { display: block; background: #000; image-rendering: pixelated; }
+#overlay {
+  position: absolute; inset: 0; background: rgba(0, 0, 0, 0.82);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; gap: 14px;
+}
+#overlay.hidden { display: none; }
+#ov-title { font-size: 34px; font-weight: bold; letter-spacing: 3px; color: #ffd94f; }
+#ov-sub { font-size: 15px; color: #e8e8e8; }
+#ov-hint { font-size: 13px; color: #9a9a9a; white-space: pre-line; }
+#hud { width: 390px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.hud-block { background: #1c1c1c; border: 1px solid #333; padding: 6px 4px; text-align: center; }
+.hud-block label { display: block; font-size: 9px; color: #8c8c8c; letter-spacing: 1px; margin-bottom: 3px; }
+#hud-enemies, #hud-lives { font-size: 12px; line-height: 1.2; }
+#hud-stage { font-size: 14px; font-weight: bold; color: #ffd94f; }
+#hud-score { font-size: 14px; font-weight: bold; }
+#hud-high { font-size: 14px; font-weight: bold; color: #7ec9ff; }
