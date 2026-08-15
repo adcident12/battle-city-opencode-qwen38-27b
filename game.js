@@ -501,11 +501,7 @@
   }
 
   function saveHigh() {
-    if (G.score > G.high) {
-      G.high = G.score;
-      try { localStorage.setItem("battlecity_highscore", String(G.high)); } catch (e) {}
-    }
-    G.score = Math.max(G.score, 0);
+    try { localStorage.setItem("battlecity_highscore", String(G.high)); } catch (e) {}
   }
 
   function gameOver() { saveHigh(); setState("gameover"); Sfx.play("game_over"); }
