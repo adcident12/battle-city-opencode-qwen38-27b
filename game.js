@@ -124,7 +124,8 @@
     var dir = KEYMAP[e.key];
     if (dir) { if (G.player && G.state === "playing") G.player.dir = dir; }
     if (e.key === " " || e.key === "Enter") {
-      if (G.state === "menu" || G.state === "gameover" || G.state === "victory") startGame();
+      if (G.state === "menu") startGame();
+      else if (G.state === "gameover" || G.state === "victory") setState("menu");
       else if (G.state === "playing") firePlayer();
     }
     if ((e.key === "p" || e.key === "P" || e.key === "Escape") &&
@@ -134,18 +135,315 @@
   }
   function onKeyUp(e) { keys[e.key] = false; }
 
-  // ---- player (fill in task 6) ----------------------------------------
-  function updatePlayer(dt) {};
-  function firePlayer() {}
+  // ---- player ----------------------------------------------------------
+  var DIRKEYS = { up: ["ArrowUp", "w", "W"], down: ["ArrowDown", "s", "S"], left: ["ArrowLeft", "a", "A"], right: ["ArrowRight", "d", "D"] };
 
-  // ---- enemies (fill in task 7) ---------------------------------------
-  function updateEnemies(dt) {}
+  function keyHeld(dir) {
+    var ks = DIRKEYS[dir];
+    for (var i = 0; i < ks.length; i++) if (keys[ks[i]]) return true;
+    return false;
+  }
 
-  // ---- bullets (fill in task 6) ---------------------------------------
-  function updateBullets(dt) {}
+  function allTanks() {
+    var arr = G.enemies.slice();
+    if (G.player && !G.player.dead) arr.push(G.player);
+    return arr;
+  }
 
-  // ---- powerups / fort / staging (fill in task 8) ---------------------
-  function updatePowerups(dt) {}
+  function moveAxis(t, dx, dy) {
+    var nx = t.x + dx, ny = t.y + dy;
+    if (!Grid.canMoveTank(G.map, nx, ny, t.w, t.h)) return false;
+    var box = { x: nx, y: ny, w: t.w, h: t.h };
+    var tanks = allTanks();
+    for (var i = 0; i < tanks.length; i++) {
+      var o = tanks[i];
+      if (o === t) continue;
+      if (aabb(box, o)) return false;
+    }
+    t.x = nx; t.y = ny;
+    return true;
+  }
+
+  function respawnPlayer() {
+    var p = G.player;
+    p.x = cx(Grid.PLAYER_SPAWN[0]); p.y = cx(Grid.PLAYER_SPAWN[1]);
+    p.dir = "up"; p.dead = false; p.protect = SPAWN_PROTECT;
+  }
+
+  function updatePlayer(dt) {
+    var p = G.player;
+    if (!p) return;
+    if (p.dead) {
+      G.playerRespawnT = (G.playerRespawnT || 0) - dt;
+      if (G.playerRespawnT <= 0) respawnPlayer();
+      return;
+    }
+    if (!keyHeld(p.dir)) return;
+    var sp = G.power.tank ? PLAYER_SPEED_POWER : PLAYER_SPEED;
+    var dx = DIRS[p.dir][0] * sp * dt, dy = DIRS[p.dir][1] * sp * dt;
+    if (dx) moveAxis(p, dx, 0);
+    if (dy) moveAxis(p, 0, dy);
+  }
+
+  function firePlayer() {
+    var p = G.player;
+    if (!p || p.dead || G.state !== "playing") return;
+    if (p.fireCd > 0) return;
+    var maxB = G.power.tank ? 2 : 1, count = 0;
+    for (var i = 0; i < G.bullets.length; i++) if (G.bullets[i].fromPlayer) count++;
+    if (count >= maxB) return;
+    var bx = p.x, by = p.y;
+    if (p.dir === "up") { bx = p.x + p.w / 2 - 2; by = p.y - 4; }
+    else if (p.dir === "down") { bx = p.x + p.w / 2 - 2; by = p.y + p.h; }
+    else if (p.dir === "left") { bx = p.x - 4; by = p.y + p.h / 2 - 2; }
+    else { bx = p.x + p.w; by = p.y + p.h / 2 - 2; }
+    G.bullets.push({ x: bx, y: by, w: BULLET, h: BULLET, dir: p.dir, fromPlayer: true,
+                     power: G.power.bullet, speed: G.power.bullet ? POWER_BULLET_SPEED : BULLET_SPEED });
+    p.fireCd = 0.15;
+    Sfx.play("shoot");
+  }
+
+  // ---- bullets ----------------------------------------------------------
+  function leadingPts(b) {
+    if (b.dir === "up") return [[b.x + 1, b.y], [b.x + 3, b.y]];
+    if (b.dir === "down") return [[b.x + 1, b.y + b.h - 1], [b.x + 3, b.y + b.h - 1]];
+    if (b.dir === "left") return [[b.x, b.y + 1], [b.x, b.y + 3]];
+    return [[b.x + b.w - 1, b.y + 1], [b.x + b.w - 1, b.y + 3]];
+  }
+
+  function isFortCell(x, y) {
+    if (x === 6 && y === 12) return true;
+    for (var i = 0; i < Grid.FORT_BRICKS.length; i++)
+      if (Grid.FORT_BRICKS[i][0] === x && Grid.FORT_BRICKS[i][1] === y) return true;
+    return false;
+  }
+
+  function bulletTileHit(b) {
+    var pts = leadingPts(b);
+    for (var i = 0; i < pts.length; i++) {
+      var tx = Math.floor(pts[i][0] / TILE), ty = Math.floor(pts[i][1] / TILE);
+      if (tx < 0 || ty < 0 || tx > 12 || ty > 12) return { kind: "steel" }; // border
+      var h = Grid.bulletHits(G.map, tx, ty);
+      if (h) { h.cell = [tx, ty]; return h; }
+    }
+    return null;
+  }
+
+  function destroyTile(tx, ty, hit, b) {
+    if (hit.brick) hit.brick.broken = true;
+    else G.map.tiles[ty][tx] = ".";
+  }
+
+  function resolveBulletHit(b, hit, idx) {
+    if (hit.kind === "eagle") {
+      G.bullets.splice(idx, 1);
+      destroyEagle();
+      return;
+    }
+    if (hit.kind === "brick") {
+      destroyTile(hit.cell[0], hit.cell[1], hit, b);
+      addFx(hit.cell[0] * TILE + TILE / 2, hit.cell[1] * TILE + TILE / 2, "small");
+      Sfx.play("brick_break");
+      if (!b.power) G.bullets.splice(idx, 1);
+      return; // power bullet pierces brick
+    }
+    // steel
+    Sfx.play("steel_hit");
+    if (b.power && !G.map.steel && Grid.tileAt(G.map, hit.cell[0], hit.cell[1]) === "S") {
+      G.map.tiles[hit.cell[1]][hit.cell[0]] = ".";
+      addFx(hit.cell[0] * TILE + TILE / 2, hit.cell[1] * TILE + TILE / 2, "small");
+      Sfx.play("brick_break");
+    }
+    G.bullets.splice(idx, 1);
+  }
+
+  function bulletTankHit(b) {
+    if (b.fromPlayer) {
+      for (var i = 0; i < G.enemies.length; i++) {
+        var e = G.enemies[i];
+        if (aabb(b, e)) { e.hp--; hitFlash(e); if (e.hp <= 0) killEnemy(e); return true; }
+      }
+    } else {
+      var p = G.player;
+      if (p && !p.dead && p.protect <= 0 && aabb(b, p)) { killPlayer(); return true; }
+    }
+    return false;
+  }
+
+  function hitFlash(e) {} // visual hook (task 9 polish)
+
+  function updateBullets(dt) {
+    for (var i = G.bullets.length - 1; i >= 0; i--) {
+      var b = G.bullets[i];
+      b.x += DIRS[b.dir][0] * b.speed * dt;
+      b.y += DIRS[b.dir][1] * b.speed * dt;
+      if (b.x < 0 || b.y < 0 || b.x + b.w > FIELD || b.y + b.h > FIELD) { G.bullets.splice(i, 1); continue; }
+      var hit = bulletTileHit(b);
+      if (hit) { resolveBulletHit(b, hit, i); continue; }
+      if (bulletTankHit(b)) { G.bullets.splice(i, 1); continue; }
+    }
+  }
+
+  function killPlayer() {
+    var p = G.player;
+    p.dead = true;
+    addFx(p.x + p.w / 2, p.y + p.h / 2, "big");
+    Sfx.play("explode_small");
+    G.lives--;
+    if (G.lives <= 0) { gameOver(); return; }
+    G.playerRespawnT = 1;
+  }
+
+  function destroyEagle() {
+    G.map.eagle.alive = false;
+    addFx(6 * TILE + TILE / 2, 12 * TILE + TILE / 2, "big");
+    Sfx.play("fort_destroy");
+    gameOver();
+  }
+
+  // ---- enemies (part 3) ------------------------------------------------
+  function spawnEnemy() {
+    var kind = G.enemyQueue.charAt(0);
+    G.enemyQueue = G.enemyQueue.slice(1);
+    var carrier = G.enemyQueueCarrier.shift() || false;
+    var pt = pick(Grid.SPAWNS);
+    var sx = cx(pt[0]), sy = cx(pt[1]);
+    var box = { x: sx, y: sy, w: TANK, h: TANK };
+    var tanks = allTanks();
+    for (var i = 0; i < tanks.length; i++)
+      if (aabb(box, tanks[i])) {
+        pt = pick(Grid.SPAWNS);
+        sx = cx(pt[0]); sy = cx(pt[1]);
+        box = { x: sx, y: sy, w: TANK, h: TANK };
+        break;
+      }
+    var e = makeTank(kind, sx, sy, "down", false);
+    e.carrier = carrier;
+    e.aiTimer = rand(0.3, 1.0);
+    G.enemies.push(e);
+  }
+
+  function canGo(e, dir) {
+    var dx = DIRS[dir][0] * 6, dy = DIRS[dir][1] * 6;
+    return Grid.canMoveTank(G.map, e.x + dx, e.y + dy, TANK, TANK);
+  }
+
+  function aimDir(e) {
+    var tx, ty;
+    if (G.map.eagle.alive) { tx = 6 * TILE + 15; ty = 12 * TILE + 15; }
+    else {
+      var pl = G.player;
+      tx = pl && !pl.dead ? pl.x + 14 : FIELD / 2;
+      ty = pl && !pl.dead ? pl.y + 14 : FIELD / 2;
+    }
+    var dx = tx - (e.x + 14), dy = ty - (e.y + 14);
+    if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? "right" : "left";
+    return dy > 0 ? "down" : "up";
+  }
+
+  function retarget(e) {
+    var r = Math.random(), want;
+    if (G.starMode) {
+      if (r < 0.35) want = aimDir(e);
+      else if (r < 0.65) want = "down";
+      else want = pick(["up", "down", "left", "right"]);
+    } else {
+      if (r < 0.5) want = e.dir;
+      else if (r < 0.75) want = "down";
+      else want = pick(["up", "down", "left", "right"]);
+    }
+    if (!canGo(e, want)) {
+      var opts = [];
+      var all = ["up", "down", "left", "right"];
+      for (var i = 0; i < 4; i++) if (all[i] !== want && canGo(e, all[i])) opts.push(all[i]);
+      if (opts.length) want = pick(opts);
+    }
+    e.dir = want;
+  }
+
+  function fireEnemy(e) {
+    for (var i = 0; i < G.bullets.length; i++)
+      if (!G.bullets[i].fromPlayer && G.bullets[i].owner === e) return; // 1 bullet per enemy
+    var bx, by;
+    if (e.dir === "up") { bx = e.x + e.w / 2 - 2; by = e.y - 4; }
+    else if (e.dir === "down") { bx = e.x + e.w / 2 - 2; by = e.y + e.h; }
+    else if (e.dir === "left") { bx = e.x - 4; by = e.y + e.h / 2 - 2; }
+    else { bx = e.x + e.w; by = e.y + e.h / 2 - 2; }
+    var sp = (e.kind === "P" ? POWER_BULLET_SPEED : BULLET_SPEED);
+    if (G.starMode) sp *= 1.5;
+    G.bullets.push({ x: bx, y: by, w: BULLET, h: BULLET, dir: e.dir, fromPlayer: false,
+                     power: false, speed: sp, owner: e });
+    e.fireCd = 1.2;
+    Sfx.play("shoot");
+  }
+
+  function updateEnemies(dt) {
+    for (var i = 0; i < G.enemies.length; i++) {
+      var e = G.enemies[i];
+      e.fireCd = Math.max(0, (e.fireCd || 0) - dt);
+      e.aiTimer -= dt;
+      if (e.aiTimer <= 0) {
+        retarget(e);
+        e.aiTimer = G.starMode ? rand(0.4, 0.9) : rand(0.8, 2.0);
+      }
+      var dx = DIRS[e.dir][0] * e.speed * dt, dy = DIRS[e.dir][1] * e.speed * dt;
+      var moved = false;
+      if (dx && moveAxis(e, dx, 0)) moved = true;
+      if (dy && moveAxis(e, 0, dy)) moved = true;
+      if (!moved) e.aiTimer = Math.min(e.aiTimer, 0.15);
+      if (e.fireCd <= 0) {
+        if (Math.random() < 0.6) fireEnemy(e);
+        else e.fireCd = 0.15;
+      }
+    }
+  }
+
+  // ---- powerups (part 4) ----------------------------------------------
+  var PUP_ICON = { tank: "T", bullet: "B", helmet: "H", shovel: "S", star: "\u2605", bomb: "\u2622" };
+
+  function dropPowerup(e) {
+    var r = Math.random();
+    var type;
+    if (r < 0.15) type = "star";
+    else if (r < 0.30) type = "bomb";
+    else type = pick(["tank", "bullet", "helmet", "shovel"]);
+    G.powerups.push({ type: type, icon: PUP_ICON[type], x: e.x + 2, y: e.y + 2, t: 0 });
+  }
+
+  function applyPowerup(type) {
+    G.score += 500;
+    if (G.score > G.high) G.high = G.score;
+    if (type === "tank") G.power.tank = true;
+    else if (type === "bullet") G.power.bullet = true;
+    else if (type === "helmet") G.helmetTimer = Math.max(G.helmetTimer, HELMET_LIFE);
+    else if (type === "shovel") { Grid.setFortSteel(G.map, true); G.shovelTimer = Math.max(G.shovelTimer, SHOVEL_LIFE); }
+    else if (type === "star") { G.starMode = true; Sfx.play("star"); return; }
+    else if (type === "bomb") {
+      for (var i = G.enemies.length - 1; i >= 0; i--) {
+        var e = G.enemies[i];
+        G.enemies.splice(i, 1);
+        addFx(e.x + 14, e.y + 14, "small");
+        G.score += ENEMY_SCORE[e.kind];
+      }
+      if (G.score > G.high) G.high = G.score;
+      Sfx.play("explode_big");
+      return;
+    }
+    Sfx.play("powerup");
+  }
+
+  function updatePowerups(dt) {
+    for (var i = G.powerups.length - 1; i >= 0; i--) {
+      var p = G.powerups[i];
+      p.t += dt;
+      if (p.t > POWERUP_LIFE) { G.powerups.splice(i, 1); continue; }
+      var pl = G.player;
+      if (pl && !pl.dead && aabb({ x: p.x, y: p.y, w: 24, h: 24 }, pl)) {
+        G.powerups.splice(i, 1);
+        applyPowerup(p.type);
+      }
+    }
+  }
 
   // ---- effects ---------------------------------------------------------
   function addFx(x, y, type) { G.fx.push({ x: x, y: y, t: 0, type: type }); }
@@ -180,7 +478,7 @@
     checkStageEnd();
   }
 
-  // spawn enemies up to MAX_ON_FIELD (task 7 fills detail)
+  // spawn enemies up to MAX_ON_FIELD
   function spawnLogic(dt) {
     G.spawnCooldown -= dt;
     if (G.spawnCooldown <= 0 && G.enemyQueue.length > 0 && G.enemies.length < MAX_ON_FIELD) {
@@ -188,7 +486,6 @@
       G.spawnCooldown = 1.2;
     }
   }
-  function spawnEnemy() {}
 
   function checkStageEnd() {
     if (G.enemyQueue.length === 0 && G.enemies.length === 0 && G.state === "playing") {
@@ -198,8 +495,17 @@
     }
   }
 
-  function killPlayer() {}       // task 6
-  function killEnemy(t) {}       // task 7
+  function killEnemy(e) {
+    var i = G.enemies.indexOf(e);
+    if (i === -1) return;
+    var carrier = e.carrier;
+    G.enemies.splice(i, 1);
+    addFx(e.x + e.w / 2, e.y + e.h / 2, (e.kind === "A" || e.kind === "P") ? "big" : "small");
+    Sfx.play("explode_small");
+    G.score += ENEMY_SCORE[e.kind];
+    if (G.score > G.high) G.high = G.score;
+    if (carrier) dropPowerup(e);
+  }
 
   function saveHigh() {
     if (G.score > G.high) {
@@ -332,7 +638,7 @@
   }
 
   function drawTanks() {
-    if (G.player) drawTank(G.player);
+    if (G.player && !G.player.dead) drawTank(G.player);
     for (var i = 0; i < G.enemies.length; i++) drawTank(G.enemies[i]);
   }
   function drawBullets() {
