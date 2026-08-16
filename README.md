@@ -6,7 +6,7 @@ A single-player Battle City clone that runs entirely in your browser — pure va
 
 ## Watch it get built
 
-[![Vibe Coding a Tank Game with Local AI (Qwen3.8-27B)](https://i.ytimg.com/vi/jmzg4vEVX0M/maxresdefault.jpg)](https://youtu.be/jmzg4vEVX0M)
+[![Vibe Coding a Tank Game with Local AI (Qwen3.8-27B)](docs/youtube-thumbnail.png)](https://youtu.be/jmzg4vEVX0M)
 
 This repository was built in a single AI-assisted session — watch the whole thing: [Vibe Coding a Tank Game with Local AI (Qwen3.8-27B)](https://youtu.be/jmzg4vEVX0M) on YouTube (click the thumbnail above).
 
