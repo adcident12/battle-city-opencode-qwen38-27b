@@ -14,7 +14,7 @@ This repository was built in a single AI-assisted session — watch the whole th
 
 A faithful core version of the classic tank game. You defend your base against 20 enemy tanks per stage across 12 hand-drawn stages on a 13×13 tile (390×390 px) playfield: thread through brick walls, dodge rivers and steel, pick up power-ups mid-fight — and never let the eagle at your base get shot.
 
-The game is written in vanilla, untranspiled JavaScript rendered with Canvas 2D, with retro sound effects synthesized from scratch via WebAudio (no audio files). Map data, the collision grid, and level validation are pure functions covered by a `node:test` unit suite, and the whole game boots by opening a single `index.html`.
+The game is written in vanilla, untranspiled JavaScript rendered with Canvas 2D, with retro sound effects synthesized from scratch via WebAudio (no audio files). Map data, the collision grid, level validation, and the core game logic (state machine, bullets, power-ups, enemy spawning and staging) are covered by a `node:test` unit suite that runs headlessly in Node; canvas rendering is verified in the browser. The whole game boots by opening a single `index.html`.
 
 ## Getting Started
 
@@ -106,16 +106,17 @@ The codebase was built spec-first: design spec and a 9-task TDD implementation p
 ├── grid.js           # Map building, fort, tank/bullet collision (pure functions)
 ├── audio.js          # WebAudio sound effects (pure module)
 ├── game.js           # Game loop, state machine, entities, rendering
-├── tests/            # node:test suites (levels + grid)
+├── tests/            # node:test suites (levels + grid + game logic)
 └── docs/
     ├── screenshot.png
+    ├── youtube-thumbnail.png
     └── superpowers/  # design spec + implementation plan
 ```
 
 ## Testing
 
 ```bash
-node --test tests/levels.test.js tests/grid.test.js
+node --test tests/levels.test.js tests/grid.test.js tests/game.test.js
 ```
 
-14 tests cover level data integrity (13×13 maps, clear spawn/fort rows, 20-enemy queues) and grid logic (map building, fort brick placement, tank/bullet collision resolution). The game loop itself is DOM-bound and verified by hand in the browser.
+44 tests cover level data integrity (13×13 maps, clear spawn/fort rows, 20-enemy queues), grid logic (map building, fort brick placement, tank/bullet collision resolution), and the game logic itself: state transitions (menu / playing / paused / stageclear / gameover / victory), firing with cooldowns and the bullet cap, brick/steel/eagle damage (including power-bullet piercing), enemy spawn cooling and on-field cap, stage progression, the power-up drop table and effects, pickup/expiry, lives, respawn protection, and high-score persistence (`localStorage` is stubbed in tests). `game.js` boots headlessly in Node for the suite — its DOM work is confined to `boot()`, which is skipped when there is no `document`, and a `module.exports` guard exposes the internals to `node:test`. Canvas rendering is verified in the browser (Lighthouse a11y 100 / perf 100; ~144 FPS in a 5 s in-game trace).

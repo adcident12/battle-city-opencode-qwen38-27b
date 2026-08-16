@@ -1,8 +1,7 @@
 (function () {
   "use strict";
 
-  var canvas = document.getElementById("game");
-  var ctx = canvas.getContext("2d");
+  var canvas = null, ctx = null; // set in boot()
   var TILE = Grid.TILE, FIELD = Grid.FIELD;
 
   // ---- constants -------------------------------------------------------
@@ -90,6 +89,7 @@
     updateOverlay();
   }
   function updateOverlay() {
+    if (!overlay.title) return; // not booted (headless/Node)
     var t = "", sub = "", hint = "";
     if (G.state === "menu") {
       t = "BATTLE CITY";
@@ -691,6 +691,8 @@
 
   // ---- boot ------------------------------------------------------------
   function boot() {
+    canvas = document.getElementById("game");
+    ctx = canvas.getContext("2d");
     overlay.el = document.getElementById("overlay");
     overlay.title = document.getElementById("ov-title");
     overlay.sub = document.getElementById("ov-sub");
@@ -706,6 +708,24 @@
     setState("menu");
     requestAnimationFrame(frame);
   }
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = {
+      G: G, keys: keys,
+      aabb: aabb, makeTank: makeTank,
+      loadLevel: loadLevel, startGame: startGame, setState: setState,
+      onKeyDown: onKeyDown, onKeyUp: onKeyUp, keyHeld: keyHeld,
+      moveAxis: moveAxis, respawnPlayer: respawnPlayer, updatePlayer: updatePlayer,
+      firePlayer: firePlayer, bulletTileHit: bulletTileHit, destroyTile: destroyTile,
+      resolveBulletHit: resolveBulletHit, bulletTankHit: bulletTankHit, updateBullets: updateBullets,
+      killPlayer: killPlayer, destroyEagle: destroyEagle, spawnEnemy: spawnEnemy,
+      fireEnemy: fireEnemy, updateEnemies: updateEnemies,
+      dropPowerup: dropPowerup, applyPowerup: applyPowerup, updatePowerups: updatePowerups,
+      addFx: addFx, updateFx: updateFx,
+      update: update, spawnLogic: spawnLogic, checkStageEnd: checkStageEnd,
+      killEnemy: killEnemy, saveHigh: saveHigh, gameOver: gameOver
+    };
+  }
+  if (typeof document === "undefined") return;
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
   else boot();
 })();
