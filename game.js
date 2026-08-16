@@ -59,8 +59,9 @@
     return {
       kind: kind, x: x, y: y, w: TANK, h: TANK,
       dir: dir, speed: isPlayer ? PLAYER_SPEED : ENEMY_SPEED[kind],
-      hp: 1, isPlayer: !!isPlayer,
-      protect: 0, fireCd: 0, aiTimer: 0, moving: false
+      hp: kind === "A" ? 4 : 1, isPlayer: !!isPlayer,
+      protect: 0, fireCd: 0, aiTimer: 0, moving: false,
+      flash: 0
     };
   }
 
@@ -265,7 +266,7 @@
     return false;
   }
 
-  function hitFlash(e) {} // visual hook (task 9 polish)
+  function hitFlash(e) { e.flash = 0.1; }
 
   function updateBullets(dt) {
     for (var i = G.bullets.length - 1; i >= 0; i--) {
@@ -376,6 +377,7 @@
     for (var i = 0; i < G.enemies.length; i++) {
       var e = G.enemies[i];
       e.fireCd = Math.max(0, (e.fireCd || 0) - dt);
+      e.flash = Math.max(0, (e.flash || 0) - dt);
       e.aiTimer -= dt;
       if (e.aiTimer <= 0) {
         retarget(e);
@@ -593,6 +595,7 @@
 
   function drawTank(t) {
     var C = t.isPlayer ? COLORS.player : COLORS.enemy[t.kind] || COLORS.enemy.B;
+    if (t.flash > 0) C = "#ffffff";
     ctx.save();
     ctx.translate(t.x + t.w / 2, t.y + t.h / 2);
     var rot = t.dir === "up" ? 0 : t.dir === "right" ? Math.PI / 2 : t.dir === "down" ? Math.PI : -Math.PI / 2;

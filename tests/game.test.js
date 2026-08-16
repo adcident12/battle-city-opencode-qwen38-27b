@@ -446,3 +446,48 @@ test("update smoke: 60 frames at 60fps without error, game stays playing", () =>
   assert.ok(game.G.score >= 0);
 });
 
+// ---- armor (spec: 4 hp, white flash 100ms) ----------------------------------
+test("makeTank: armor tank starts with 4 hp, others with 1", () => {
+  assert.equal(game.makeTank("A", 0, 0, "down", false).hp, 4);
+  assert.equal(game.makeTank("B", 0, 0, "down", false).hp, 1);
+  assert.equal(game.makeTank("F", 0, 0, "down", false).hp, 1);
+  assert.equal(game.makeTank("P", 0, 0, "down", false).hp, 1);
+  assert.equal(game.makeTank("P", 0, 0, "up", true).hp, 1);
+});
+
+function armorTarget() {
+  game.G.map = emptyMap();
+  game.G.bullets = [];
+  game.G.fx = [];
+  game.G.score = 0;
+  const e = game.makeTank("A", 150, 150, "down", false);
+  game.G.enemies = [e];
+  const b = { x: 154, y: 154, w: 4, h: 4, dir: "down", speed: 360, fromPlayer: true, power: false };
+  game.G.bullets.push(b);
+  return { e: e, b: b };
+}
+
+test("armor takes 4 hits: alive at 1 hp after 3, dies on the 4th", () => {
+  const { e, b } = armorTarget();
+  game.bulletTankHit(b);
+  assert.equal(e.hp, 3);
+  game.bulletTankHit(b);
+  assert.equal(e.hp, 2);
+  game.bulletTankHit(b);
+  assert.equal(e.hp, 1);
+  assert.equal(game.G.enemies.length, 1, "still alive at 1 hp");
+  game.bulletTankHit(b);
+  assert.equal(game.G.enemies.length, 0, "destroyed on 4th hit");
+  assert.equal(game.G.score, 400);
+});
+
+test("hitFlash: damaged armor carries a 100ms flash that the enemy update decays", () => {
+  const { e, b } = armorTarget();
+  game.bulletTankHit(b);
+  assert.ok(Math.abs(e.flash - 0.1) < 1e-9, "100ms flash timer set on hit");
+  game.updateEnemies(0.05);
+  assert.ok(Math.abs(e.flash - 0.05) < 1e-9, "decays with dt");
+  game.updateEnemies(0.2);
+  assert.equal(e.flash, 0, "clamped at 0");
+});
+
