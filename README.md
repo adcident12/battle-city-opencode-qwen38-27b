@@ -4,6 +4,12 @@ A single-player Battle City clone that runs entirely in your browser — pure va
 
 ![Battle City in play](docs/screenshot.png)
 
+## Watch it get built
+
+[![Vibe Coding a Tank Game with Local AI (Qwen3.8-27B)](https://i.ytimg.com/vi/jmzg4vEVX0M/maxresdefault.jpg)](https://youtu.be/jmzg4vEVX0M)
+
+This repository was built in a single AI-assisted session — watch the whole thing: [Vibe Coding a Tank Game with Local AI (Qwen3.8-27B)](https://youtu.be/jmzg4vEVX0M) on YouTube (click the thumbnail above).
+
 ## About
 
 A faithful core version of the classic tank game. You defend your base against 20 enemy tanks per stage across 12 hand-drawn stages on a 13×13 tile (390×390 px) playfield: thread through brick walls, dodge rivers and steel, pick up power-ups mid-fight — and never let the eagle at your base get shot.
