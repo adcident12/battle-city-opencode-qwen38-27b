@@ -1,0 +1,7 @@
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+graft/
+
+# ephemeral tooling output
+.playwright-mcp/
+lh-report.json
+smoke*.png
