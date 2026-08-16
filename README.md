@@ -53,7 +53,9 @@ python -m http.server 8080
 ## Gameplay
 
 - 12 stages, 20 enemy tanks per stage, up to 6 on screen at once
-- 3 lives; a destroyed tank respawns at the base with 2 s of spawn protection
+- Enemies spawn top west → center → east, one every 2.5 s, each with a 1 s spawn shield and a 1.2 s first shot
+- Enemy AI re-rolls on turns (0.8–2 s): 60% fire chance when the 1.2 s shot cooldown is up
+- 3 lives; a destroyed tank respawns at the base with 2 s of spawn protection; the last life plays a ~1 s death animation before game over
 - One hit on the eagle (base) ends the game immediately
 - High score persists between sessions via `localStorage`
 - Active power-ups reset at every stage (score and lives are kept)
@@ -73,12 +75,14 @@ Each stage, half of the enemy tanks are pre-rolled "carriers": killing one drops
 
 | Pickup       | Weight | Effect                                                              |
 | ------------ | ------ | ------------------------------------------------------------------- |
-| Tank `T`     | 25%    | Player speed ×1.25 and a second concurrent bullet                   |
-| Bullet `B`   | 25%    | Bullets pierce brick rows and can destroy steel                     |
-| Helmet `H`   | 25%    | 15 s invulnerability shield around your tank                        |
-| Shovel `S`   | 25%    | Fort bricks become steel for 30 s; destroyed bricks are restored on expiry |
-| Star `★`     | 15%    | Enemy AI turns aggressive (faster reactions, aims at you and the base) for the rest of the stage |
+| Tank `T`     | ~16%   | Player speed ×1.25 and a second concurrent bullet                   |
+| Bullet `B`   | ~16%   | Bullets pierce brick rows and can destroy steel                     |
+| Helmet `H`   | ~16%   | 15 s invulnerability shield around your tank                        |
+| Shovel `S`   | ~16%   | Fort bricks become steel for 30 s; destroyed bricks are restored on expiry |
+| Star `★`     | 15%    | Enemy AI turns aggressive for the rest of the stage: faster reactions (0.4–0.9 s turns), 60% drive down / 25% toward you / 15% toward the base, and bullets fly 50% faster |
 | Bomb `☢`     | 15%    | Destroys every enemy on screen instantly, full score for each       |
+
+(Star and bomb are the guaranteed roll first; the four common pickups share the remaining 70%.)
 
 ### Tile types
 
@@ -119,4 +123,4 @@ The codebase was built spec-first: design spec and a 9-task TDD implementation p
 node --test tests/levels.test.js tests/grid.test.js tests/game.test.js
 ```
 
-47 tests cover level data integrity (13×13 maps, clear spawn/fort rows, 20-enemy queues), grid logic (map building, fort brick placement, tank/bullet collision resolution), and the game logic itself: state transitions (menu / playing / paused / stageclear / gameover / victory), firing with cooldowns and the bullet cap, brick/steel/eagle damage (including power-bullet piercing), armor multi-hit damage (4 hp + hit flash), enemy spawn cooling and on-field cap, stage progression, the power-up drop table and effects, pickup/expiry, lives, respawn protection, and high-score persistence (`localStorage` is stubbed in tests). `game.js` boots headlessly in Node for the suite — its DOM work is confined to `boot()`, which is skipped when there is no `document`, and a `module.exports` guard exposes the internals to `node:test`. Canvas rendering is verified in the browser (Lighthouse a11y 100 / perf 100; ~144 FPS in a 5 s in-game trace).
+55 tests cover level data integrity (13×13 maps, clear spawn/fort rows, 20-enemy queues), grid logic (map building, fort brick placement, tank/bullet collision resolution), and the game logic itself: state transitions (menu / playing / paused / stageclear / gameover / victory), firing with cooldowns and the bullet cap, brick/steel/eagle damage (including power-bullet piercing), armor multi-hit damage (4 hp + hit flash), enemy spawn rotation (west → center → east), 2.5 s spawn interval, per-enemy spawn shield, turn-based enemy AI (weighted direction picks, fire chance, 1.2 s cooldown reset), star-mode targeting weights, shielded bullet consumption, the ~1 s death animation before game over, stage progression, the power-up drop table and effects, pickup/expiry, lives, respawn protection, and high-score persistence (`localStorage` is stubbed in tests). `game.js` boots headlessly in Node for the suite — its DOM work is confined to `boot()`, which is skipped when there is no `document`, and a `module.exports` guard exposes the internals to `node:test`. Canvas rendering is verified in the browser (Lighthouse a11y 100 / perf 100; ~144 FPS in a 5 s in-game trace).

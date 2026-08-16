@@ -139,7 +139,7 @@ test("firePlayer: bullet geometry, cooldown, 1-bullet cap", () => {
   assert.equal(b.speed, 360);
   assert.equal(b.power, false);
   assert.equal(b.fromPlayer, true);
-  assert.equal(p.fireCd, 0.15);
+  assert.equal(p.fireCd, 0.3);
   game.firePlayer();
   assert.equal(game.G.bullets.length, 1);
   p.fireCd = 0;
@@ -263,19 +263,51 @@ test("bulletTankHit: player bullet kills enemy and scores it", () => {
   assert.equal(game.G.score, before + 200);
 });
 
-test("bulletTankHit: enemy bullet respects spawn protect, then kills player", () => {
+test("bulletTankHit: enemy bullet is consumed with flash on shielded player, no damage", () => {
   game.startGame();
   const p = game.G.player;
   const e = game.makeTank("B", 10, 10, "down", false);
   const b = { x: p.x, y: p.y, w: 4, h: 4, dir: "up", fromPlayer: false, power: false, speed: 360, owner: e };
-  assert.equal(game.bulletTankHit(b), false);
+  game.G.fx.length = 0;
+  assert.equal(game.bulletTankHit(b), true, "spawn-protected player consumes the bullet");
   assert.ok(!p.dead);
   assert.equal(game.G.lives, 3);
+  assert.ok(game.G.fx.length >= 1, "small flash on shielded hit");
   p.protect = 0;
   assert.equal(game.bulletTankHit(b), true);
   assert.equal(p.dead, true);
   assert.equal(game.G.lives, 2);
   assert.equal(game.G.playerRespawnT, 1);
+});
+
+test("bulletTankHit: active helmet makes the player untargetable (spec: shield 15s)", () => {
+  game.startGame();
+  const p = game.G.player;
+  p.protect = 0;
+  game.G.helmetTimer = 15;
+  const e = game.makeTank("B", 10, 10, "down", false);
+  game.G.enemies.push(e);
+  const b = { x: p.x, y: p.y, w: 4, h: 4, dir: "up", fromPlayer: false, power: false, speed: 360, owner: e };
+  game.G.fx.length = 0;
+  assert.equal(game.bulletTankHit(b), true, "bullet consumed by the shield");
+  assert.ok(!p.dead, "player survives");
+  assert.equal(game.G.lives, 3);
+  assert.ok(game.G.fx.length >= 1, "flash on shielded hit");
+  game.G.helmetTimer = 0;
+  assert.equal(game.bulletTankHit(b), true, "once the helmet expires the bullet kills");
+  assert.equal(p.dead, true);
+});
+
+test("bulletTankHit: enemy bullet with no helmet and no protect kills (regression)", () => {
+  game.startGame();
+  const p = game.G.player;
+  p.protect = 0;
+  game.G.helmetTimer = 0;
+  const e = game.makeTank("B", 10, 10, "down", false);
+  const b = { x: p.x, y: p.y, w: 4, h: 4, dir: "up", fromPlayer: false, power: false, speed: 360, owner: e };
+  assert.equal(game.bulletTankHit(b), true);
+  assert.equal(p.dead, true);
+  assert.equal(game.G.lives, 2);
 });
 
 test("killEnemy: carrier drops exactly one powerup", () => {
@@ -408,6 +440,8 @@ test("killPlayer on last life: gameover state + high score persisted", () => {
   game.killPlayer();
   assert.equal(game.G.player.dead, true);
   assert.equal(game.G.lives, 0);
+  assert.ok(game.G.state !== "gameover", "1s death anim runs before game over");
+  game.update(1.0);
   assert.equal(game.G.state, "gameover");
   assert.equal(store["battlecity_highscore"], String(game.G.high));
   delete global.localStorage;
@@ -489,5 +523,125 @@ test("hitFlash: damaged armor carries a 100ms flash that the enemy update decays
   assert.ok(Math.abs(e.flash - 0.05) < 1e-9, "decays with dt");
   game.updateEnemies(0.2);
   assert.equal(e.flash, 0, "clamped at 0");
+});
+
+// ---- spec drift fixes ------------------------------------------------------
+test("spawnEnemy: enemies get 1000ms spawn protect, untargetable until gone", () => {
+  game.startGame();
+  const e = game.makeTank("B", 100, 100, "down", false);
+  e.protect = 1;
+  game.G.enemies = [e];
+  const b = { x: 104, y: 104, w: 4, h: 4, dir: "down", speed: 360, fromPlayer: true, power: false };
+  const hp = e.hp;
+  assert.equal(game.bulletTankHit(b), true, "bullet consumed by spawn shield");
+  assert.equal(e.hp, hp, "no damage while protected");
+  assert.equal(game.G.enemies.length, 1, "still alive");
+  game.updateEnemies(1.05);
+  assert.equal(e.protect, 0, "protect decays to 0 after ~1s");
+  assert.equal(game.bulletTankHit(b), true);
+  assert.equal(e.hp, hp - 1, "damageable once protect is gone");
+});
+
+test("retarget: star mode 60% down / 25% toward player / 15% toward fort", () => {
+  game.startGame();
+  game.G.map = emptyMap();
+  game.G.starMode = true;
+  // Enemy at tile (0,11) -> center (15,345). Player at (0,0) -> (15,15) is "up".
+  // Fort (195,375): dx=180, dy=30 -> "right". Three distinct buckets.
+  const e = game.makeTank("B", 1, 331, "down", false);
+  const p = game.G.player;
+  p.x = 1; p.y = 1; p.dead = false;
+  const orig = Math.random;
+  try {
+    Math.random = () => 0.5;   // r < 0.60
+    game.retarget(e);
+    assert.equal(e.dir, "down", "star: 60% bucket -> down");
+    Math.random = () => 0.7;   // 0.60 <= r < 0.85
+    game.retarget(e);
+    assert.equal(e.dir, "up", "star: 25% bucket -> toward player");
+    Math.random = () => 0.95;  // r >= 0.85
+    game.retarget(e);
+    assert.equal(e.dir, "right", "star: 15% bucket -> toward fort");
+  } finally { Math.random = orig; game.G.starMode = false; }
+});
+
+test("retarget: normal mode keeps 50% same / 25% down / 25% random", () => {
+  game.startGame();
+  game.G.map = emptyMap();
+  game.G.starMode = false;
+  const e = game.makeTank("B", 150, 150, "up", false);
+  const orig = Math.random;
+  try {
+    Math.random = () => 0.4; // < 0.5 same dir
+    game.retarget(e);
+    assert.equal(e.dir, "up", "normal: 50% bucket -> keep dir");
+    Math.random = () => 0.6; // 0.5-0.75 down
+    game.retarget(e);
+    assert.equal(e.dir, "down", "normal: 25% bucket -> down");
+    Math.random = () => 0.99; // >= 0.75 random (pick index 3 -> right)
+    game.retarget(e);
+    assert.equal(e.dir, "right", "normal: 25% bucket -> random pick");
+  } finally { Math.random = orig; }
+});
+
+test("spawnEnemy: rotates west->center->east, 2.5s interval, fresh protect+fireCd", () => {
+  game.startGame();
+  game.G.map = emptyMap();
+  const xs = [];
+  for (let i = 0; i < 3; i++) {
+    game.G.enemies.length = 0;
+    game.G.bullets.length = 0;
+    game.G.spawnCooldown = 0;
+    game.spawnLogic(0.016);
+    const e = game.G.enemies[0];
+    xs.push(e.x);
+    assert.ok(e.protect > 0.99, "spawned enemy has ~1s protect");
+    assert.ok(e.fireCd > 1.19, "spawned enemy starts with 1.2s fire cooldown");
+    assert.ok(Math.abs(game.G.spawnCooldown - 2.5) < 1e-9, "interval reset to 2.5s");
+  }
+  assert.equal(xs[0], 1 * 30 + 1, "1st spawn west");
+  assert.equal(xs[1], 6 * 30 + 1, "2nd spawn center");
+  assert.equal(xs[2], 11 * 30 + 1, "3rd spawn east");
+});
+
+test("updateEnemies: fire is decided only at the AI turn, cooldown reset to 1.2s", () => {
+  game.startGame();
+  game.G.map = emptyMap();
+  game.G.starMode = false;
+  const e = game.makeTank("B", 150, 100, "down", false);
+  e.aiTimer = 1.0;   // no turn this tick
+  e.fireCd = 0;      // cooldown ready
+  game.G.enemies = [e];
+  game.G.bullets.length = 0;
+  const orig = Math.random;
+  try {
+    Math.random = () => 0; // would fire if checked mid-tick
+    game.updateEnemies(1 / 60);
+    assert.equal(game.G.bullets.length, 0, "no mid-tick fire between AI turns");
+    e.aiTimer = 0; // this tick is a turn
+    Math.random = () => 0; // roll 0 < 0.6 -> fires
+    game.updateEnemies(1 / 60);
+    assert.equal(game.G.bullets.length, 1, "fires at the turn");
+    assert.ok(Math.abs(e.fireCd - 1.2) < 1e-9, "cooldown reset to 1.2s");
+    assert.equal(game.G.bullets[0].owner, e);
+  } finally { Math.random = orig; }
+});
+
+test("killPlayer at 0 lives: ~1s death anim, then game over with overReason", () => {
+  game.startGame();
+  game.G.lives = 1;
+  game.G.enemyQueue = "";
+  game.G.enemies.length = 0;
+  const p = game.G.player;
+  p.protect = 0;
+  game.G.helmetTimer = 0;
+  game.killPlayer();
+  assert.equal(p.dead, true);
+  assert.ok(game.G.state !== "gameover", "not over instantly");
+  game.update(0.6);
+  assert.ok(game.G.state !== "gameover", "still playing during the 1s death anim");
+  game.update(0.5);
+  assert.equal(game.G.state, "gameover", "over after ~1s");
+  assert.equal(game.G.overReason, "lives");
 });
 
