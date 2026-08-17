@@ -36,15 +36,17 @@
     enemies: [], bullets: [], powerups: [], fx: [],
     score: 0, high: 0, lives: 3,
     enemyQueue: "", spawnCooldown: 0, spawnSlot: 0,
-    stageTimer: 0, starMode: false, pendingOver: 0, overReason: null,
+    stageTimer: 0,     starMode: false, pendingOver: 0, overReason: null,
     helmetTimer: 0, shovelTimer: 0,
-    power: { tank: false, bullet: false }
+    power: { tank: false, bullet: false },
+    shake: 0, fade: 0
   };
   try { G.high = parseInt(localStorage.getItem("battlecity_highscore") || "0", 10) || 0; } catch (e) {}
 
   var keys = {};
   var overlay = { el: null, title: null, sub: null, hint: null };
   var hud = { enemies: null, stage: null, lives: null, score: null, high: null };
+  var hudCache = { enemies: -1, lives: -1, score: null, high: null, stage: null };
 
   // ---- helpers ---------------------------------------------------------
   function cx(i) { return i * TILE + 1; }          // tile-index -> tank px (1px inset)
@@ -61,7 +63,7 @@
       dir: dir, speed: isPlayer ? PLAYER_SPEED : ENEMY_SPEED[kind],
       hp: kind === "A" ? 4 : 1, isPlayer: !!isPlayer,
       protect: 0, fireCd: 0, aiTimer: 0, moving: false,
-      flash: 0
+      flash: 0, muzzle: 0, tread: 0, pop: 0.18
     };
   }
 
@@ -77,6 +79,7 @@
     G.spawnSlot = 0; G.pendingOver = 0; G.overReason = null;
     G.player = makeTank("P", cx(Grid.PLAYER_SPAWN[0]), cx(Grid.PLAYER_SPAWN[1]), "up", true);
     G.player.protect = SPAWN_PROTECT;
+    G.fade = 1;
   }
 
   function startGame() {
@@ -173,6 +176,7 @@
     var p = G.player;
     p.x = cx(Grid.PLAYER_SPAWN[0]); p.y = cx(Grid.PLAYER_SPAWN[1]);
     p.dir = "up"; p.dead = false; p.protect = SPAWN_PROTECT;
+    p.pop = 0.18; p.muzzle = 0;
   }
 
   function updatePlayer(dt) {
@@ -188,8 +192,10 @@
     if (!keyHeld(p.dir)) return;
     var sp = G.power.tank ? PLAYER_SPEED_POWER : PLAYER_SPEED;
     var dx = DIRS[p.dir][0] * sp * dt, dy = DIRS[p.dir][1] * sp * dt;
-    if (dx) moveAxis(p, dx, 0);
-    if (dy) moveAxis(p, 0, dy);
+    var moved = false;
+    if (dx && moveAxis(p, dx, 0)) moved = true;
+    if (dy && moveAxis(p, 0, dy)) moved = true;
+    if (moved) p.tread += sp * dt;
   }
 
   function firePlayer() {
@@ -205,8 +211,8 @@
     else if (p.dir === "left") { bx = p.x - 4; by = p.y + p.h / 2 - 2; }
     else { bx = p.x + p.w; by = p.y + p.h / 2 - 2; }
     G.bullets.push({ x: bx, y: by, w: BULLET, h: BULLET, dir: p.dir, fromPlayer: true,
-                     power: G.power.bullet, speed: G.power.bullet ? POWER_BULLET_SPEED : BULLET_SPEED });
-    p.fireCd = 0.3;
+                      power: G.power.bullet, speed: G.power.bullet ? POWER_BULLET_SPEED : BULLET_SPEED });
+    p.fireCd = 0.3; p.muzzle = 0.08;
     Sfx.play("shoot");
   }
 
@@ -382,7 +388,7 @@
     if (G.starMode) sp *= 1.5;
     G.bullets.push({ x: bx, y: by, w: BULLET, h: BULLET, dir: e.dir, fromPlayer: false,
                      power: false, speed: sp, owner: e });
-    e.fireCd = 1.2;
+    e.fireCd = 1.2; e.muzzle = 0.08;
     Sfx.play("shoot");
   }
 
@@ -392,6 +398,8 @@
       e.fireCd = Math.max(0, (e.fireCd || 0) - dt);
       e.flash = Math.max(0, (e.flash || 0) - dt);
       e.protect = Math.max(0, (e.protect || 0) - dt);
+      e.muzzle = Math.max(0, (e.muzzle || 0) - dt);
+      e.pop = Math.max(0, (e.pop || 0) - dt);
       e.aiTimer -= dt;
       if (e.aiTimer <= 0) {
         retarget(e);
@@ -403,6 +411,7 @@
       var moved = false;
       if (dx && moveAxis(e, dx, 0)) moved = true;
       if (dy && moveAxis(e, 0, dy)) moved = true;
+      if (moved) e.tread += e.speed * dt;
       if (!moved) e.aiTimer = Math.min(e.aiTimer, 0.15);
     }
   }
@@ -455,13 +464,18 @@
   }
 
   // ---- effects ---------------------------------------------------------
-  function addFx(x, y, type) { G.fx.push({ x: x, y: y, t: 0, type: type }); }
+  function addFx(x, y, type) {
+    G.fx.push({ x: x, y: y, t: 0, type: type, seed: (Math.random() * 100000) | 0 });
+    if (type === "big") G.shake = 0.09;
+  }
   function updateFx(dt) {
     for (var i = G.fx.length - 1; i >= 0; i--) { G.fx[i].t += dt; if (G.fx[i].t > 0.4) G.fx.splice(i, 1); }
   }
 
   // ---- update ----------------------------------------------------------
   function update(dt) {
+    G.shake = Math.max(0, G.shake - dt);
+    G.fade = Math.max(0, G.fade - dt * 4);
     if (G.state !== "playing") {
       if (G.state === "stageclear") {
         G.stageTimer -= dt;
@@ -478,7 +492,12 @@
       if (G.pendingOver <= 0) gameOver();
       return;
     }
-    if (G.player) { G.player.protect = Math.max(0, G.player.protect - dt); G.player.fireCd = Math.max(0, G.player.fireCd - dt); }
+    if (G.player) {
+      G.player.protect = Math.max(0, G.player.protect - dt);
+      G.player.fireCd = Math.max(0, G.player.fireCd - dt);
+      G.player.muzzle = Math.max(0, (G.player.muzzle || 0) - dt);
+      G.player.pop = Math.max(0, (G.player.pop || 0) - dt);
+    }
     if (G.helmetTimer > 0) G.helmetTimer = Math.max(0, G.helmetTimer - dt);
     if (G.shovelTimer > 0) {
       G.shovelTimer = Math.max(0, G.shovelTimer - dt);
@@ -532,6 +551,13 @@
 
   // ---- render ----------------------------------------------------------
   function render() {
+    ctx.save();
+    if (G.shake > 0) {
+      ctx.translate(
+        Math.round((Math.random() * 2 - 1) * G.shake * 24),
+        Math.round((Math.random() * 2 - 1) * G.shake * 24)
+      );
+    }
     ctx.fillStyle = COLORS.bg;
     ctx.fillRect(0, 0, FIELD, FIELD);
     drawTiles(false);
@@ -541,6 +567,11 @@
     drawBullets();
     drawTrees();
     drawFx();
+    ctx.restore();
+    if (G.fade > 0) {
+      ctx.fillStyle = "rgba(0,0,0," + Math.min(1, G.fade) + ")";
+      ctx.fillRect(0, 0, FIELD, FIELD);
+    }
   }
 
   function tileCh(x, y) {
@@ -560,33 +591,54 @@
   }
 
   function drawBrick(px, py) {
-    ctx.fillStyle = COLORS.brickA; ctx.fillRect(px, py, TILE, TILE);
-    ctx.fillStyle = COLORS.brickB;
+    ctx.fillStyle = COLORS.brickB; ctx.fillRect(px, py, TILE, TILE); // mortar
+    ctx.fillStyle = COLORS.brickA;
     for (var r = 0; r < 3; r++) {
-      ctx.fillRect(px, py + r * 10, TILE, 1);
-      ctx.fillRect(px + ((r % 2) ? 15 : 7), py + r * 10, 1, 10);
+      var y = py + r * 10 + 1;
+      if (r === 1) {
+        ctx.fillRect(px + 1, y, 7, 8); ctx.fillRect(px + 9, y, 13, 8); ctx.fillRect(px + 24, y, 5, 8);
+      } else {
+        ctx.fillRect(px + 1, y, 13, 8); ctx.fillRect(px + 16, y, 13, 8);
+      }
     }
   }
   function drawSteel(px, py) {
-    ctx.fillStyle = COLORS.steelA; ctx.fillRect(px, py, TILE, TILE);
-    ctx.fillStyle = COLORS.steelC; ctx.fillRect(px, py, TILE, 3); ctx.fillRect(px, py, 3, TILE);
-    ctx.fillStyle = COLORS.steelB; ctx.fillRect(px + TILE - 3, py, 3, TILE); ctx.fillRect(px, py + TILE - 3, TILE, 3);
-    ctx.fillStyle = COLORS.steelA; ctx.fillRect(px + 6, py + 6, TILE - 12, TILE - 12);
+    ctx.fillStyle = COLORS.steelB; ctx.fillRect(px, py, TILE, TILE);
+    ctx.fillStyle = COLORS.steelA; ctx.fillRect(px + 2, py + 2, TILE - 4, TILE - 4);
+    ctx.fillStyle = COLORS.steelC; ctx.fillRect(px + 2, py + 2, TILE - 4, 3); ctx.fillRect(px + 2, py + 2, 3, TILE - 4);
+    ctx.fillStyle = COLORS.steelB; ctx.fillRect(px + 2, py + TILE - 5, TILE - 4, 3); ctx.fillRect(px + TILE - 5, py + 2, 3, TILE - 4);
+    ctx.fillStyle = COLORS.steelC; ctx.fillRect(px + 13, py + 13, 4, 4);
   }
   function drawRiver(px, py) {
     ctx.fillStyle = COLORS.riverA; ctx.fillRect(px, py, TILE, TILE);
     ctx.fillStyle = COLORS.riverB;
+    var ph = (performance.now() * 0.02) % 30;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(px, py, TILE, TILE); ctx.clip();
     for (var r = 0; r < 3; r++) {
-      var off = (r % 2) ? 4 : 10;
-      ctx.fillRect(px + off, py + r * 10 + 4, 8, 2);
+      for (var j = 0; j < 2; j++) {
+        var lane = j * 15 + (r % 2) * 7 + ph;
+        var n0 = Math.floor((px - 9 - lane) / 30);
+        for (var m = 0; m < 3; m++) {
+          var xg = lane + (n0 + m) * 30;
+          if (xg + 9 > px && xg < px + TILE) ctx.fillRect(xg, py + r * 10 + 4, 9, 2);
+        }
+      }
     }
+    ctx.restore();
   }
+  var TREE_BLOBS = [
+    [1, 1, 10, 6], [14, 2, 9, 7], [24, 1, 5, 8],
+    [2, 10, 8, 7], [13, 9, 9, 8], [23, 9, 6, 9],
+    [1, 19, 9, 7], [12, 18, 10, 7], [23, 18, 6, 9],
+    [4, 27, 10, 2], [16, 27, 9, 2]
+  ];
   function drawTree(px, py) {
     ctx.fillStyle = COLORS.treeA; ctx.fillRect(px, py, TILE, TILE);
     ctx.fillStyle = COLORS.treeB;
-    for (var i = 0; i < 6; i++) {
-      var sx = px + ((i * 13) % 24) + 1, sy = py + ((i * 17) % 24) + 1;
-      ctx.fillRect(sx, sy, 5, 3);
+    for (var i = 0; i < TREE_BLOBS.length; i++) {
+      var b = TREE_BLOBS[i];
+      ctx.fillRect(px + b[0], py + b[1], b[2], b[3]);
     }
   }
 
@@ -602,41 +654,71 @@
   }
   function drawEagle() {
     var x = 6 * TILE, y = 12 * TILE;
-    ctx.fillStyle = COLORS.eagleB;
-    ctx.fillRect(x + 2, y + 16, TILE - 4, TILE - 18);
-    ctx.fillStyle = COLORS.eagleA;
-    ctx.beginPath();
-    ctx.moveTo(x + 4, y + 18); ctx.lineTo(x + TILE - 4, y + 18);
-    ctx.lineTo(x + TILE / 2, y + 4);
-    ctx.closePath(); ctx.fill();
+    var A = COLORS.eagleA, B = COLORS.eagleB;
+    ctx.fillStyle = B; ctx.fillRect(x + 4, y + 22, TILE - 8, 8);   // plinth
+    ctx.fillStyle = A; ctx.fillRect(x + 6, y + 22, TILE - 12, 2);
+    ctx.fillStyle = B;                                             // wings
+    ctx.fillRect(x + 2, y + 14, 8, 8);
+    ctx.fillRect(x + TILE - 10, y + 14, 8, 8);
+    ctx.fillStyle = A;
+    ctx.fillRect(x + 3, y + 15, 3, 6); ctx.fillRect(x + TILE - 6, y + 15, 3, 6);
+    ctx.fillStyle = A; ctx.fillRect(x + 9, y + 10, TILE - 18, 13); // body
+    ctx.fillStyle = B; ctx.fillRect(x + 9, y + 20, TILE - 18, 3);
+    ctx.fillStyle = A; ctx.fillRect(x + 11, y + 2, 8, 9);          // head
+    ctx.fillStyle = "#e0a33c"; ctx.fillRect(x + 13, y + 5, 4, 3);  // beak
     ctx.fillStyle = "#2b2b2b";
-    ctx.fillRect(x + TILE / 2 - 2, y + 8, 4, 4);
+    ctx.fillRect(x + 12, y + 3, 2, 2); ctx.fillRect(x + 16, y + 3, 2, 2); // eyes
   }
 
   function drawTank(t) {
     var C = t.isPlayer ? COLORS.player : COLORS.enemy[t.kind] || COLORS.enemy.B;
     if (t.flash > 0) C = "#ffffff";
+    var s = (t.pop && t.pop > 0) ? 0.75 + 0.25 * (1 - t.pop / 0.18) : 1;
     ctx.save();
     ctx.translate(t.x + t.w / 2, t.y + t.h / 2);
+    if (s !== 1) ctx.scale(s, s);
     var rot = t.dir === "up" ? 0 : t.dir === "right" ? Math.PI / 2 : t.dir === "down" ? Math.PI : -Math.PI / 2;
     ctx.rotate(rot);
-    // treads
+    // treads (scrolling)
+    var pitch = 5, ph0 = (t.tread || 0) % pitch;
     ctx.fillStyle = "#3a3f45";
     ctx.fillRect(-t.w / 2, -t.h / 2, 6, t.h);
     ctx.fillRect(t.w / 2 - 6, -t.h / 2, 6, t.h);
-    // body
+    ctx.fillStyle = "#565d66";
+    for (var yy = -t.h / 2 - pitch + ph0; yy < t.h / 2; yy += pitch) {
+      var y0 = Math.max(yy, -t.h / 2 + 1), y1 = Math.min(yy + 2, t.h / 2 - 1);
+      if (y1 > y0) {
+        ctx.fillRect(-t.w / 2 + 1, y0, 4, y1 - y0);
+        ctx.fillRect(t.w / 2 - 5, y0, 4, y1 - y0);
+      }
+    }
+    // body with shading
     ctx.fillStyle = C;
     ctx.fillRect(-t.w / 2 + 6, -t.h / 2 + 3, t.w - 12, t.h - 6);
-    // turret
+    ctx.fillStyle = "rgba(255,255,255,0.25)";
+    ctx.fillRect(-t.w / 2 + 6, -t.h / 2 + 3, t.w - 12, 2);
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
+    ctx.fillRect(-t.w / 2 + 6, t.h / 2 - 5, t.w - 12, 2);
+    // turret + barrel (recoil)
+    var rec = t.muzzle > 0 ? 3 : 0;
     ctx.fillStyle = shade(C);
     ctx.fillRect(-4, -6, 8, 12);
-    ctx.fillRect(-2, -t.h / 2, 4, t.h / 2); // barrel
+    ctx.fillRect(-2, -t.h / 2 + rec, 4, t.h / 2 - rec);
+    // muzzle flash
+    if (t.muzzle > 0) {
+      ctx.fillStyle = "#fff6c8";
+      ctx.fillRect(-3, -t.h / 2 - 5, 6, 4);
+      ctx.fillStyle = COLORS.powerBullet;
+      ctx.fillRect(-2, -t.h / 2 - 7, 4, 2);
+    }
     ctx.restore();
     if (t.protect > 0 || (t.isPlayer && G.helmetTimer > 0)) {
       ctx.save();
       ctx.strokeStyle = COLORS.shield;
       ctx.lineWidth = 2;
       ctx.globalAlpha = 0.6 + 0.4 * Math.sin(performance.now() / 60);
+      ctx.setLineDash([7, 6]);
+      ctx.lineDashOffset = -(performance.now() / 40);
       ctx.beginPath();
       ctx.arc(t.x + t.w / 2, t.y + t.h / 2, t.w / 2 + 3, 0, Math.PI * 2);
       ctx.stroke();
@@ -657,34 +739,73 @@
   function drawBullets() {
     for (var i = 0; i < G.bullets.length; i++) {
       var b = G.bullets[i];
-      ctx.fillStyle = b.power ? COLORS.powerBullet : COLORS.bullet;
-      ctx.fillRect(b.x, b.y, BULLET, BULLET);
+      var c = b.power ? COLORS.powerBullet : COLORS.bullet;
+      var w = b.w + (b.power ? 2 : 0), h = b.h + (b.power ? 2 : 0);
+      var L = b.power ? 9 : 5, e = b.power ? 1 : 0;
+      ctx.fillStyle = b.power ? "rgba(255,233,79,0.35)" : "rgba(255,255,255,0.25)";
+      if (b.dir === "up") ctx.fillRect(b.x - e, b.y - L + 2, w, L - 2);
+      else if (b.dir === "down") ctx.fillRect(b.x - e, b.y + 2, w, L - 2);
+      else if (b.dir === "left") ctx.fillRect(b.x - L + 2, b.y - e, L - 2, h);
+      else ctx.fillRect(b.x + 2, b.y - e, L - 2, h);
+      ctx.fillStyle = c;
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.fillStyle = "#ffffff";
+      if (b.dir === "up") ctx.fillRect(b.x, b.y, b.w, 1);
+      else if (b.dir === "down") ctx.fillRect(b.x, b.y + b.h - 1, b.w, 1);
+      else if (b.dir === "left") ctx.fillRect(b.x, b.y, 1, b.h);
+      else ctx.fillRect(b.x + b.w - 1, b.y, 1, b.h);
     }
   }
   function drawPowerups() {
-    var blink = Math.floor(performance.now() / 250) % 2 === 0;
+    var now = performance.now();
     for (var i = 0; i < G.powerups.length; i++) {
       var p = G.powerups[i];
-      if (blink) continue;
+      var remain = POWERUP_LIFE - p.t;
+      if (remain < 3 && Math.floor(now / 150) % 2 === 0) continue; // expiring flicker
+      var s = p.t < 0.25 ? 0.6 + (p.t / 0.25) * 0.4 : 1 + 0.05 * Math.sin(now / 180 + p.x);
+      var size = 24 * s, ox = p.x + 12 - size / 2, oy = p.y + 12 - size / 2;
+      ctx.save();
       ctx.fillStyle = COLORS.box;
-      ctx.fillRect(p.x, p.y, 24, 24);
+      ctx.fillRect(ox, oy, size, size);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(255,255,255,0.6)";
+      ctx.strokeRect(ox + 1, oy + 1, size - 2, size - 2);
       ctx.fillStyle = COLORS.boxText;
-      ctx.font = "bold 14px monospace";
+      ctx.font = "bold " + Math.max(10, Math.round(14 * s)) + "px monospace";
       ctx.textAlign = "center"; ctx.textBaseline = "middle";
       ctx.fillText(p.icon, p.x + 12, p.y + 13);
+      ctx.restore();
     }
   }
   function drawFx() {
     for (var i = 0; i < G.fx.length; i++) {
-      var f = G.fx[i], k = f.t / 0.4;
-      var r = (f.type === "big" ? 18 : 10) * (0.5 + k);
+      var f = G.fx[i], age = f.t / 0.4, big = f.type === "big";
+      var R = big ? 18 : 10;
       ctx.save();
-      ctx.globalAlpha = 1 - k;
-      ctx.fillStyle = f.type === "big" ? "#ff9d2e" : "#ffd94f";
-      ctx.beginPath(); ctx.arc(f.x, f.y, r, 0, Math.PI * 2); ctx.fill();
-      if (k > 0.3) {
+      if (age < 0.5) {
+        var k = age * 2;
+        var r = 4 + (R - 4) * k;
         ctx.fillStyle = "#fff3c4";
-        ctx.beginPath(); ctx.arc(f.x, f.y, r * 0.5, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(f.x, f.y, r, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 0.8;
+        ctx.fillStyle = big ? "#ff9d2e" : "#ffd94f";
+        ctx.beginPath(); ctx.arc(f.x, f.y, r * 0.65, 0, Math.PI * 2); ctx.fill();
+      } else {
+        var k2 = (age - 0.5) * 2;
+        var r2 = R * (1 + 0.8 * k2);
+        ctx.globalAlpha = 1 - k2;
+        ctx.fillStyle = big ? "#ff9d2e" : "#ffd94f";
+        ctx.beginPath(); ctx.arc(f.x, f.y, r2, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = (1 - k2) * 0.8;
+        ctx.fillStyle = "#fff3c4";
+        ctx.beginPath(); ctx.arc(f.x, f.y, r2 * 0.5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "#ffe94f";
+        for (var sp = 0; sp < 6; sp++) {
+          var ang = (f.seed % 6) + sp * (Math.PI / 3);
+          var d = r2 * (0.9 + 0.15 * ((f.seed >> (sp + 1)) % 3));
+          ctx.globalAlpha = 1 - k2;
+          ctx.fillRect(f.x + Math.cos(ang) * d - 1, f.y + Math.sin(ang) * d - 1, 2, 2);
+        }
       }
       ctx.restore();
     }
@@ -692,13 +813,37 @@
   function drawTrees() { drawTiles(true); }
 
   // ---- HUD -------------------------------------------------------------
+  function pip(cls) { return '<span class="pip ' + cls + '" aria-hidden="true"></span>'; }
   function renderHUD() {
     var left = G.enemyQueue.length + G.enemies.length;
-    hud.enemies.innerHTML = left > 0 ? "■".repeat(Math.min(left, 15)) : "0";
-    hud.stage.textContent = (G.level + 1) + "/" + LEVELS.length;
-    hud.lives.textContent = G.lives > 0 ? "▲".repeat(Math.min(G.lives, 9)) : "0";
-    hud.score.textContent = G.score;
-    hud.high.textContent = G.high;
+    var shown = Math.min(left, 15);
+    if (hudCache.enemies !== shown) {
+      hudCache.enemies = shown;
+      var s = "";
+      for (var i = 0; i < shown; i++) s += pip("pip-enemy");
+      hud.enemies.innerHTML = s;
+      hud.enemies.setAttribute("aria-label", "enemies remaining " + left);
+    }
+    var stage = (G.level + 1) + "/" + LEVELS.length;
+    if (hudCache.stage !== stage) { hudCache.stage = stage; hud.stage.textContent = stage; }
+    var lives = Math.min(G.lives, 9);
+    if (hudCache.lives !== lives) {
+      hudCache.lives = lives;
+      var s2 = "";
+      for (var j = 0; j < lives; j++) s2 += pip("pip-player");
+      hud.lives.innerHTML = s2;
+      hud.lives.setAttribute("aria-label", "lives " + G.lives);
+    }
+    var score = String(G.score);
+    if (hudCache.score !== score) {
+      hudCache.score = score;
+      hud.score.textContent = score;
+      hud.score.classList.remove("score-pop");
+      void hud.score.offsetWidth; // restart animation
+      hud.score.classList.add("score-pop");
+    }
+    var high = String(G.high);
+    if (hudCache.high !== high) { hudCache.high = high; hud.high.textContent = high; }
   }
 
   // ---- main loop -------------------------------------------------------
@@ -715,7 +860,14 @@
   // ---- boot ------------------------------------------------------------
   function boot() {
     canvas = document.getElementById("game");
+    var dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = FIELD * dpr;
+    canvas.height = FIELD * dpr;
+    canvas.style.width = FIELD + "px";
+    canvas.style.height = FIELD + "px";
     ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = false;
+    if (dpr !== 1) ctx.scale(dpr, dpr);
     overlay.el = document.getElementById("overlay");
     overlay.title = document.getElementById("ov-title");
     overlay.sub = document.getElementById("ov-sub");
